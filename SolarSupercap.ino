@@ -1,14 +1,23 @@
+#include <PWM.h>
+
 
 #include <avr/power.h>
 #include <avr/wdt.h>
 
 // BOOST CONSTANTS
 #define BOOST_VOLTAGE 5
+#define BOOST_DIVIDER_RATIO (10e3)/(10e3+15e3)
 #define EPSILON_BITS 60 // 60 bits at 3.3V == 0.2V
-#define MAX_BOOST_DUTY 204 // 204/255 = 80%
+#define EPSILON_V 0.1
+#define MAX_BOOST_DUTY 178 // 188/255 = 74%
 #define MIN_BOOST_DUTY 77 // 77/255 = 30%
+#define BOOST_PWM_PIN 3
+#define BOOST_V_OFFSET 0.1
 
-int sensorPin = A0;    // select the input pin for the potentiometer
+volatile int boost_duty = 128;
+int boost_v_target = 5;
+float boost_v = 5;
+
 int ledPin = 11;      // select the pin for the LED
 
 volatile int analogVals[2];
@@ -16,7 +25,7 @@ volatile int readFlag = 0;
 volatile int prevADC = 0;
 volatile int currADC = 1;
 
-volatile int boost_duty = 128;
+
 
 void setup() {
   wdt_enable(WDTO_2S);
@@ -25,69 +34,115 @@ void setup() {
   power_spi_disable();
   power_twi_disable(); 
   
+  Serial.begin(115200);
+  
+  InitTimersSafe();
+  
   // declare the ledPin as an OUTPUT:
   pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin,HIGH); 
-  
-  pinMode(5,OUTPUT);
-  setPwmFrequency(5,1);
-  analogWrite(5,173);
-  
-//  pinMode(6,OUTPUT);
-//  setPwmFrequency(6,1);
-//  analogWrite(6,200);
- 
 
-  Serial.begin(9600);
+  pinMode(3,OUTPUT);
+  bool success = SetPinFrequencySafe(3, 41250);
+  if(success){
+    Serial.println("Set pin 3 to 31250Hz");
+  }
+  pwmWrite(3,128);
+  
+//  pinMode(BOOST_PWM_PIN,OUTPUT);
+//  setPwmFrequency(BOOST_PWM_PIN,1);
+//  analogWrite(BOOST_PWM_PIN,138);
+ 
+ 
+//  noInterrupts();           // disable all interrupts
+  TCCR1A = 0;
+  TCCR1B = 0;
+  TCNT1  = 0;
+  
+  OCR1A = 500;            // compare match register 8MHz/8/1000Hz
+  TCCR1B |= (1 << WGM12);   // CTC mode
+  TCCR1B |= (1 << CS11);    // 8 prescaler 
+ // TIMSK1 |= (1 << OCIE1A);  // enable timer compare interrupt
+  sei();
 
   ADCSetup();
 }
 
+//ISR(TIMER1_COMPA_vect)          // timer compare interrupt service routine
+//{
+//  digitalWrite(ledPin, digitalRead(ledPin) ^ 1);   // toggle LED pin
+//}
+
 void loop() {
   wdt_reset();
   
+  if (TIFR1 & (1 << OCF1A))  {
+    digitalWrite(ledPin, digitalRead(ledPin) ^ 1);
+    TIFR1 &= ~(1 << OCF1A);
+    
+    float v = analogRead(0);
+    Serial.println(v);
+    float boost_v = get_boost_voltage(v,5);
+    Serial.println(boost_v);
+  //  Serial.println(boost_v);
+  //  Serial.println(boost_duty);
+    boost_pid(BOOST_VOLTAGE, boost_v);
+  }
+  
+ // int v = analogRead(0);
+  //Serial.println(v);
+ // Serial.println(get_boost_voltage(v,5));
+  
   // Boost converter control
-  int boost_voltage = analogRead(1);
-  int delta_v = boost_voltage - BOOST_VOLTAGE;
-  if (delta_v > EPSILON_BITS)
+//  int boost_voltage = analogRead(1);
+//  int delta_v = boost_voltage - BOOST_VOLTAGE;
+//  if (delta_v > EPSILON_BITS)
+//  {
+//    // boost voltage > target; decrease duty cycle
+//    set_boost_duty(boost_duty - 1);
+//  } else if (delta_v < EPSILON_BITS)
+//  {
+//    // boost voltage < target; increase duty cycle
+//    set_boost_duty(boost_duty + 1);
+//  }
+   
+}
+
+void boost_pid(float target, float v)
+{
+  float delta_v = v - BOOST_VOLTAGE;
+ // Serial.println(delta_v);
+  if (delta_v > EPSILON_V)
   {
     // boost voltage > target; decrease duty cycle
     set_boost_duty(boost_duty - 1);
-  } else if (delta_v < EPSILON_BITS)
+  } else if (delta_v < -EPSILON_V)
   {
     // boost voltage < target; increase duty cycle
     set_boost_duty(boost_duty + 1);
   }
-  
-  
-  
-  // Check to see if the value has been updated
-  if (readFlag == 1){
-    if(prevADC==1){
-//      float voltage = analogVals[prevADC]*5./255.;
-//      int val = map(analogVals[prevADC]+20,0,900,0,255);
-//      analogWrite(5,val);
-//      Serial.println(voltage);
-    }
+}
 
-
-    readFlag = 0;
-  }    
+float get_boost_voltage(int adc, float vref)
+{
+  // voltage divider ratio is (10e3)/(10e3+15e3)
+  return (vref * adc)/(BOOST_DIVIDER_RATIO * 1023) + BOOST_V_OFFSET; 
 }
 
 void set_boost_duty(int duty)
 {
   if (duty > MAX_BOOST_DUTY)
   {
-    Serial.println('Attempted to set boost duty cycle too high!');
+    Serial.println("Attempted to set boost duty cycle too high!");
     boost_duty = MAX_BOOST_DUTY;
   } else if (duty < MIN_BOOST_DUTY)
   {
-    Serial.println('Attempted to set boost duty cycle too low!');
+    Serial.println("Attempted to set boost duty cycle too low!");
     boost_duty = MIN_BOOST_DUTY;
   } else
   {
     boost_duty = duty;
+    Serial.println(boost_duty);
+    pwmWrite(BOOST_PWM_PIN, boost_duty);
   }
 }
 

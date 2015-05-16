@@ -43,7 +43,7 @@ void ADCSetup()
 
   // Set ADIE in ADCSRA (0x7A) to enable the ADC interrupt.
   // Without this, the internal interrupt will not trigger.
-  ADCSRA |= B00001000;
+  //ADCSRA |= B00001000;
 
   // Enable global interrupts
   // AVR macro included in <avr/interrupts.h>, which the Arduino IDE
