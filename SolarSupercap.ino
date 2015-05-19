@@ -12,11 +12,26 @@
 #define MAX_BOOST_DUTY 178 // 188/255 = 74%
 #define MIN_BOOST_DUTY 77 // 77/255 = 30%
 #define BOOST_PWM_PIN 3
-#define BOOST_V_OFFSET 0.1
+#define BOOST_V_ADC 0
+#define BOOST_V_OFFSET 0.3
 
+// MPPT CONSTANTS
+#define MPPT_V_ADC 1
+#define MPPT_I_ADC 2
+#define MPPT_CURRENT_FACTOR 10
+#define MPPT_DIVIDER_RATIO (10e3)/(10e3+15e3)
+#define MPPT_V_OFFSET 0
+#define MPPT_I_OFFSET 0
+
+// BOOST
 volatile int boost_duty = 128;
 int boost_v_target = 5;
 float boost_v = 5;
+
+//MPPT
+int mppt_duty = 128;
+float mppt_v = 5;
+float mppt_c = 0.2;
 
 int ledPin = 11;      // select the pin for the LED
 
@@ -134,6 +149,17 @@ float get_boost_voltage(int adc, float vref)
 {
   // voltage divider ratio is (10e3)/(10e3+15e3)
   return (vref * adc)/(BOOST_DIVIDER_RATIO * 1023) + BOOST_V_OFFSET; 
+}
+
+float get_mppt_voltage(int adc, float vref)
+{
+  // voltage divider ratio is (10e3)/(10e3+15e3)
+  return (vref * adc)/(MPPT_DIVIDER_RATIO * 1023) + MPPT_V_OFFSET; 
+}
+
+float get_mppt_current(int adc, float vref)
+{
+  return (vref*adc)/(MPPT_CURRENT_FACTOR*1023) + MPPT_I_OFFSET;
 }
 
 void set_boost_duty(int duty)
