@@ -25,6 +25,7 @@ volatile int readFlag = 0;
 volatile int prevADC = 0;
 volatile int currADC = 1;
 
+float VCC = 5;
 
 
 void setup() {
@@ -65,6 +66,10 @@ void setup() {
   sei();
 
   ADCSetup();
+  
+  VCC = read_vcc()/1000.;
+  Serial.print("VCC: ");
+  Serial.println(VCC);
 }
 
 //ISR(TIMER1_COMPA_vect)          // timer compare interrupt service routine
@@ -79,32 +84,35 @@ void loop() {
     digitalWrite(ledPin, digitalRead(ledPin) ^ 1);
     TIFR1 &= ~(1 << OCF1A);
     
-    float v = analogRead(0);
+    int temp,tempI;
+    float v,i;
+    
+    temp = analogRead(BOOST_V_ADC);
+    v = get_boost_voltage(temp,VCC);
     Serial.println(v);
-    float boost_v = get_boost_voltage(v,5);
-    Serial.println(boost_v);
-  //  Serial.println(boost_v);
-  //  Serial.println(boost_duty);
-    boost_pid(BOOST_VOLTAGE, boost_v);
-  }
-  
- // int v = analogRead(0);
-  //Serial.println(v);
- // Serial.println(get_boost_voltage(v,5));
-  
-  // Boost converter control
-//  int boost_voltage = analogRead(1);
-//  int delta_v = boost_voltage - BOOST_VOLTAGE;
-//  if (delta_v > EPSILON_BITS)
-//  {
-//    // boost voltage > target; decrease duty cycle
-//    set_boost_duty(boost_duty - 1);
-//  } else if (delta_v < EPSILON_BITS)
-//  {
-//    // boost voltage < target; increase duty cycle
-//    set_boost_duty(boost_duty + 1);
-//  }
-   
+    boost_pid(BOOST_VOLTAGE, v);
+    
+    tempI = analogRead(MPPT_I_ADC);
+    temp = analogRead(MPPT_V_ADC);
+    v = get_mppt_voltage(temp, VCC);
+    i = get_mppt_current(tempI, VCC);
+  }   
+}
+
+// Read the internal reference (1.1V) relative to VCC
+long read_vcc()
+{
+  long result;
+  // Read 1.1V reference against AVcc
+  ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  delay(2); // Wait for Vref to settle
+  ADCSRA |= _BV(ADSC); // Convert
+  while (bit_is_set(ADCSRA,ADSC));
+  result = ADCL;
+  result |= ADCH<<8;
+  result = (1024L*1100L) / result; // Back-calculate AVcc in mV
+  Serial.println(result);
+  return result;
 }
 
 void boost_pid(float target, float v)
