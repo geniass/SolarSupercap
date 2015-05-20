@@ -4,24 +4,34 @@
 #include <avr/power.h>
 #include <avr/wdt.h>
 
+// PARAMETERS TO BE TUNED
+#define MAX_BOOST_DUTY 178 // 188/255 = 74%
+#define MIN_BOOST_DUTY 77 // 77/255 = 30%
+#define MAX_MPPT_DUTY 170
+#define MIN_MPPT_DUTY 0
+#define BOOST_V_OFFSET 0.3
+#define MPPT_V_OFFSET 0
+#define MPPT_I_OFFSET 0
+
 // BOOST CONSTANTS
 #define BOOST_VOLTAGE 5
 #define BOOST_DIVIDER_RATIO (10e3)/(10e3+15e3)
 #define EPSILON_BITS 60 // 60 bits at 3.3V == 0.2V
 #define EPSILON_V 0.1
-#define MAX_BOOST_DUTY 178 // 188/255 = 74%
-#define MIN_BOOST_DUTY 77 // 77/255 = 30%
 #define BOOST_PWM_PIN 3
 #define BOOST_V_ADC 0
-#define BOOST_V_OFFSET 0.3
+
 
 // MPPT CONSTANTS
+#define MPPT_PWM_PIN 5
 #define MPPT_V_ADC 1
 #define MPPT_I_ADC 2
+#define MPPT_PERIOD 100  // number of main loops before MPPT runs
+#define MPPT_VOLTAGE_STEP 0.2
+#define MPPT_DUTY_STEP 1
 #define MPPT_CURRENT_FACTOR 10
 #define MPPT_DIVIDER_RATIO (10e3)/(10e3+15e3)
-#define MPPT_V_OFFSET 0
-#define MPPT_I_OFFSET 0
+
 
 // BOOST
 volatile int boost_duty = 128;
@@ -31,7 +41,10 @@ float boost_v = 5;
 //MPPT
 int mppt_duty = 128;
 float mppt_v = 5;
-float mppt_c = 0.2;
+float mppt_i = 0.2;
+float mppt_target_v = 5;
+float mppt_target_i = 0.2;
+int mppt_period = MPPT_PERIOD;
 
 int ledPin = 11;      // select the pin for the LED
 
@@ -67,9 +80,9 @@ void setup() {
   }
   pwmWrite(BOOST_PWM_PIN,128);
   
-//  pinMode(BOOST_PWM_PIN,OUTPUT);
-//  setPwmFrequency(BOOST_PWM_PIN,1);
-//  analogWrite(BOOST_PWM_PIN,138);
+  pinMode(MPPT_PWM_PIN,OUTPUT);
+  setPwmFrequency(MPPT_PWM_PIN,1);
+  analogWrite(MPPT_PWM_PIN,138);
  
  
 //  noInterrupts();           // disable all interrupts
@@ -83,7 +96,7 @@ void setup() {
  // TIMSK1 |= (1 << OCIE1A);  // enable timer compare interrupt
   sei();
 
-  ADCSetup();
+//  ADCSetup();
   
   VCC = read_vcc()/1000.;
   Serial.print("VCC: ");
@@ -111,8 +124,24 @@ void loop() {
     
     tempI = analogRead(MPPT_I_ADC);
     temp = analogRead(MPPT_V_ADC);
-    v = get_mppt_voltage(temp, VCC);
-    i = get_mppt_current(tempI, VCC);
+    mppt_v = get_mppt_voltage(temp, VCC);
+    mppt_i = get_mppt_current(tempI, VCC);
+    
+    if (mppt_period == 0)
+    {
+      Serial.print("mppt_v: ");
+      Serial.println(mppt_v);
+      Serial.print("mppt_i: ");
+      Serial.println(mppt_i);
+      // Don't run MPPT every iteration
+      mppt_inccond(mppt_v, mppt_i);
+      
+      mppt_period = MPPT_PERIOD;
+    } else {
+      mppt_period--;
+    }
+    
+    mppt_pid(mppt_target_v, mppt_target_i, mppt_v, mppt_i);
   }   
 }
 
@@ -149,23 +178,6 @@ void boost_pid(float target, float v)
   }
 }
 
-float get_boost_voltage(int adc, float vref)
-{
-  // voltage divider ratio is (10e3)/(10e3+15e3)
-  return (vref * adc)/(BOOST_DIVIDER_RATIO * 1023) + BOOST_V_OFFSET; 
-}
-
-float get_mppt_voltage(int adc, float vref)
-{
-  // voltage divider ratio is (10e3)/(10e3+15e3)
-  return (vref * adc)/(MPPT_DIVIDER_RATIO * 1023) + MPPT_V_OFFSET; 
-}
-
-float get_mppt_current(int adc, float vref)
-{
-  return (vref*adc)/(MPPT_CURRENT_FACTOR*1023) + MPPT_I_OFFSET;
-}
-
 void set_boost_duty(int duty)
 {
   if (duty > MAX_BOOST_DUTY)
@@ -181,6 +193,92 @@ void set_boost_duty(int duty)
     boost_duty = duty;
     pwmWrite(BOOST_PWM_PIN, boost_duty);
   }
+}
+
+//MPPT CONTROL
+void mppt_inccond(float v, float i)
+{
+  static long prev_p = 0;
+  static long prev_v = 0;
+  static long prev_i = 0;
+  
+  long mV = (long)(v*1000);
+  long mA = (long)(i*1000);
+  
+  long power = mV * mA;
+  long delta_p = power - prev_p;
+  long delta_v = mV - prev_v;
+  long delta_i = mA - prev_i;
+  
+  if (delta_v != 0) {
+    long d_power = delta_p / delta_v;
+    // check if dP/dV is positive or negative
+    if (d_power > 0) {
+      mppt_target_v += MPPT_VOLTAGE_STEP;
+    } else {
+      mppt_target_v -= MPPT_VOLTAGE_STEP;
+    }
+  } else {
+    //voltage hasn't changed, but current has
+    if (delta_i > 0) {
+      mppt_target_v += MPPT_VOLTAGE_STEP;
+    } else {
+      mppt_target_v -= MPPT_VOLTAGE_STEP;
+    }
+  }
+  prev_v = mV;
+  prev_i = mA;
+  prev_p = power;
+}
+
+void mppt_pid(float target_v, float target_i, float v, float i)
+{
+  float delta_v = v - target_v;
+ // Serial.println(delta_v);
+  if (delta_v > EPSILON_V)
+  {
+    // buck voltage > target; decrease duty cycle
+    set_mppt_duty(mppt_duty - 1);
+  } else if (delta_v < -EPSILON_V)
+  {
+    // buck voltage < target; increase duty cycle
+    set_mppt_duty(mppt_duty + 1);
+  }
+}
+
+void set_mppt_duty(int duty)
+{
+  if (duty > MAX_MPPT_DUTY)
+  {
+    Serial.println("Attempted to set mppt duty cycle too high!");
+    mppt_duty = MAX_MPPT_DUTY;
+  } else if (duty < MIN_MPPT_DUTY)
+  {
+    Serial.println("Attempted to set mppt duty cycle too low!");
+    mppt_duty = MIN_MPPT_DUTY;
+  } else
+  {
+    mppt_duty = duty;
+    analogWrite(MPPT_PWM_PIN, mppt_duty);
+  }
+}
+
+// SENSOR FUNCTIONS
+float get_boost_voltage(int adc, float vref)
+{
+  // voltage divider ratio is (10e3)/(10e3+15e3)
+  return (vref * adc)/(BOOST_DIVIDER_RATIO * 1023) + BOOST_V_OFFSET; 
+}
+
+float get_mppt_voltage(int adc, float vref)
+{
+  // voltage divider ratio is (10e3)/(10e3+15e3)
+  return (vref * adc)/(MPPT_DIVIDER_RATIO * 1023) + MPPT_V_OFFSET; 
+}
+
+float get_mppt_current(int adc, float vref)
+{
+  return (vref*adc)/(MPPT_CURRENT_FACTOR*1023) + MPPT_I_OFFSET;
 }
 
 // Interrupt service routine for the ADC completion
