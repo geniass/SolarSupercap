@@ -52,17 +52,20 @@ void setup() {
   
   Serial.begin(115200);
   
-  InitTimersSafe();
-  
   // declare the ledPin as an OUTPUT:
   pinMode(ledPin, OUTPUT);
+  
+  InitTimersSafe();
+ 
 
-  pinMode(3,OUTPUT);
-  bool success = SetPinFrequencySafe(3, 41250);
+  pinMode(BOOST_PWM_PIN,OUTPUT);
+  bool success = SetPinFrequencySafe(BOOST_PWM_PIN, 31250);
   if(success){
     Serial.println("Set pin 3 to 31250Hz");
+  } else {
+    Serial.println("Error setting up PWM pin 3!!");
   }
-  pwmWrite(3,128);
+  pwmWrite(BOOST_PWM_PIN,128);
   
 //  pinMode(BOOST_PWM_PIN,OUTPUT);
 //  setPwmFrequency(BOOST_PWM_PIN,1);
@@ -100,12 +103,11 @@ void loop() {
     TIFR1 &= ~(1 << OCF1A);
     
     int temp,tempI;
-    float v,i;
     
     temp = analogRead(BOOST_V_ADC);
-    v = get_boost_voltage(temp,VCC);
-    Serial.println(v);
-    boost_pid(BOOST_VOLTAGE, v);
+    boost_v = get_boost_voltage(temp,VCC);
+    //Serial.println(boost_v);
+    boost_pid(BOOST_VOLTAGE, boost_v);
     
     tempI = analogRead(MPPT_I_ADC);
     temp = analogRead(MPPT_V_ADC);
@@ -115,6 +117,7 @@ void loop() {
 }
 
 // Read the internal reference (1.1V) relative to VCC
+// https://code.google.com/p/tinkerit/wiki/SecretVoltmeter
 long read_vcc()
 {
   long result;
@@ -130,6 +133,7 @@ long read_vcc()
   return result;
 }
 
+// BOOST CONTROL
 void boost_pid(float target, float v)
 {
   float delta_v = v - BOOST_VOLTAGE;
@@ -175,7 +179,6 @@ void set_boost_duty(int duty)
   } else
   {
     boost_duty = duty;
-    Serial.println(boost_duty);
     pwmWrite(BOOST_PWM_PIN, boost_duty);
   }
 }
