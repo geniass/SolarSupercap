@@ -19,13 +19,13 @@
 #define EPSILON_BITS 60 // 60 bits at 3.3V == 0.2V
 #define EPSILON_V 0.1
 #define BOOST_PWM_PIN 3
-#define BOOST_V_ADC 0
+#define BOOST_V_ADC 2
 
 
 // MPPT CONSTANTS
 #define MPPT_PWM_PIN 5
 #define MPPT_V_ADC 1
-#define MPPT_I_ADC 2
+#define MPPT_I_ADC 0
 #define MPPT_PERIOD 100  // number of main loops before MPPT runs
 #define MPPT_VOLTAGE_STEP 0.2
 #define MPPT_DUTY_STEP 1
