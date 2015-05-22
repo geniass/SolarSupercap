@@ -60,46 +60,47 @@ float VCC = 5;
 
 void setup() {
   wdt_enable(WDTO_2S);
-  
+
   // DISABLE SPI AND I2C
   power_spi_disable();
   power_twi_disable(); 
-  
+
   Serial.begin(115200);
-  
+
   // declare the ledPin as an OUTPUT:
   pinMode(ledPin, OUTPUT);
-  
+
   InitTimersSafe();
- 
+
 
   pinMode(BOOST_PWM_PIN,OUTPUT);
   bool success = SetPinFrequencySafe(BOOST_PWM_PIN, 31250);
   if(success){
     Serial.println("Set pin 3 to 31250Hz");
-  } else {
+  } 
+  else {
     Serial.println("Error setting up PWM pin 3!!");
   }
   pwmWrite(BOOST_PWM_PIN,128);
-  
+
   pinMode(MPPT_PWM_PIN,OUTPUT);
   setPwmFrequency(MPPT_PWM_PIN,1);
   analogWrite(MPPT_PWM_PIN,138);
- 
- 
-//  noInterrupts();           // disable all interrupts
+
+
+  //  noInterrupts();           // disable all interrupts
   TCCR1A = 0;
   TCCR1B = 0;
   TCNT1  = 0;
-  
+
   OCR1A = 500;            // compare match register 8MHz/8/1000Hz
   TCCR1B |= (1 << WGM12);   // CTC mode
   TCCR1B |= (1 << CS11);    // 8 prescaler 
- // TIMSK1 |= (1 << OCIE1A);  // enable timer compare interrupt
+  // TIMSK1 |= (1 << OCIE1A);  // enable timer compare interrupt
   sei();
 
-//  ADCSetup();
-  
+  //  ADCSetup();
+
   VCC = read_vcc()/1000.;
   Serial.print("VCC: ");
   Serial.println(VCC);
@@ -112,41 +113,43 @@ void setup() {
 
 void loop() {
   wdt_reset();
-  
+
   if (TIFR1 & (1 << OCF1A))  {
     digitalWrite(ledPin, digitalRead(ledPin) ^ 1);
     TIFR1 &= ~(1 << OCF1A);
-    
+
     int temp,tempI;
-    
+
     temp = analogRead(BOOST_V_ADC);
     boost_v = get_boost_voltage(temp,VCC);
     //Serial.println(boost_v);
     boost_pid(BOOST_VOLTAGE, boost_v);
-    
+
     tempI = analogRead(MPPT_I_ADC);
     temp = analogRead(MPPT_V_ADC);
     mppt_v = get_mppt_voltage(temp, VCC);
     mppt_i = get_mppt_current(tempI, VCC);
-    
+
     if (mppt_pid_period == 0) {
-    if (mppt_period == 0)
-    {
-      Serial.print("mppt_v: ");
-      Serial.println(mppt_v);
-      Serial.print("mppt_i: ");
-      Serial.println(mppt_i);
-      // Don't run MPPT every iteration
-      mppt_inccond(mppt_v, mppt_i);
-      
-      mppt_period = MPPT_PERIOD;
-    } else {
-      mppt_period--;
-    }
-    
-    mppt_pid(mppt_target_v, mppt_target_i, mppt_v, mppt_i);
-    mppt_pid_period = MPPT_PID_PERIOD;
-    } else {
+      if (mppt_period == 0)
+      {
+        Serial.print("mppt_v: ");
+        Serial.println(mppt_v);
+        Serial.print("mppt_i: ");
+        Serial.println(mppt_i);
+        // Don't run MPPT every iteration
+        mppt_inccond(mppt_v, mppt_i);
+
+        mppt_period = MPPT_PERIOD;
+      } 
+      else {
+        mppt_period--;
+      }
+
+      mppt_pid(mppt_target_v, mppt_target_i, mppt_v, mppt_i);
+      mppt_pid_period = MPPT_PID_PERIOD;
+    } 
+    else {
       mppt_pid_period--;
     }
   }   
@@ -173,12 +176,13 @@ long read_vcc()
 void boost_pid(float target, float v)
 {
   float delta_v = v - BOOST_VOLTAGE;
- // Serial.println(delta_v);
+  // Serial.println(delta_v);
   if (delta_v > EPSILON_V)
   {
     // boost voltage > target; decrease duty cycle
     set_boost_duty(boost_duty - 1);
-  } else if (delta_v < -EPSILON_V)
+  } 
+  else if (delta_v < -EPSILON_V)
   {
     // boost voltage < target; increase duty cycle
     set_boost_duty(boost_duty + 1);
@@ -191,11 +195,13 @@ void set_boost_duty(int duty)
   {
     Serial.println("Attempted to set boost duty cycle too high!");
     boost_duty = MAX_BOOST_DUTY;
-  } else if (duty < MIN_BOOST_DUTY)
+  } 
+  else if (duty < MIN_BOOST_DUTY)
   {
     Serial.println("Attempted to set boost duty cycle too low!");
     boost_duty = MIN_BOOST_DUTY;
-  } else
+  } 
+  else
   {
     boost_duty = duty;
     pwmWrite(BOOST_PWM_PIN, boost_duty);
@@ -208,28 +214,31 @@ void mppt_inccond(float v, float i)
   static long prev_p = 0;
   static long prev_v = 0;
   static long prev_i = 0;
-  
+
   long mV = (long)(v*1000);
   long mA = (long)(i*1000);
-  
+
   long power = mV * mA;
   long delta_p = power - prev_p;
   long delta_v = mV - prev_v;
   long delta_i = mA - prev_i;
-  
+
   if (delta_v != 0) {
     long d_power = delta_p / delta_v;
     // check if dP/dV is positive or negative
     if (d_power > 0) {
       mppt_target_v += MPPT_VOLTAGE_STEP;
-    } else {
+    } 
+    else {
       mppt_target_v -= MPPT_VOLTAGE_STEP;
     }
-  } else {
+  } 
+  else {
     //voltage hasn't changed, but current has
     if (delta_i > 0) {
       mppt_target_v += MPPT_VOLTAGE_STEP;
-    } else {
+    } 
+    else {
       mppt_target_v -= MPPT_VOLTAGE_STEP;
     }
   }
@@ -241,12 +250,13 @@ void mppt_inccond(float v, float i)
 void mppt_pid(float target_v, float target_i, float v, float i)
 {
   float delta_v = v - target_v;
- // Serial.println(delta_v);
+  // Serial.println(delta_v);
   if (delta_v > EPSILON_V)
   {
     // buck voltage > target; decrease duty cycle
     set_mppt_duty(mppt_duty - 1);
-  } else if (delta_v < -EPSILON_V)
+  } 
+  else if (delta_v < -EPSILON_V)
   {
     // buck voltage < target; increase duty cycle
     set_mppt_duty(mppt_duty + 1);
@@ -259,11 +269,13 @@ void set_mppt_duty(int duty)
   {
     Serial.println("Attempted to set mppt duty cycle too high!");
     mppt_duty = MAX_MPPT_DUTY;
-  } else if (duty < MIN_MPPT_DUTY)
+  } 
+  else if (duty < MIN_MPPT_DUTY)
   {
     Serial.println("Attempted to set mppt duty cycle too low!");
     mppt_duty = MIN_MPPT_DUTY;
-  } else
+  } 
+  else
   {
     mppt_duty = duty;
     analogWrite(MPPT_PWM_PIN, mppt_duty);
@@ -307,4 +319,5 @@ float get_mppt_current(int adc, float vref)
 //  // Set ADSC in ADCSRA (0x7A) to start another ADC conversion
 //  ADCSRA |= B01000000;
 //}          
+
 
