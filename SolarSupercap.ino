@@ -8,10 +8,12 @@
 #define MAX_BOOST_DUTY 178 // 188/255 = 74%
 #define MIN_BOOST_DUTY 77 // 77/255 = 30%
 #define MAX_MPPT_DUTY 170
-#define MIN_MPPT_DUTY 0
+#define MIN_MPPT_DUTY 51
 #define BOOST_V_OFFSET 0.3
 #define MPPT_V_OFFSET 0
 #define MPPT_I_OFFSET 0
+#define MPPT_MIN_V 2
+#define MPPT_MAX_V 5
 
 // BOOST CONSTANTS
 #define BOOST_VOLTAGE 5
@@ -137,8 +139,15 @@ void loop() {
         Serial.println(mppt_v);
         Serial.print("mppt_i: ");
         Serial.println(mppt_i);
+        Serial.print("mppt set point: ");
+        Serial.println(mppt_target_v);
+        Serial.print("mppt duty: ");
+        Serial.println(mppt_duty);
+        Serial.print("Boost voltage: ");
+        Serial.println(boost_v);
+        Serial.println();
         // Don't run MPPT every iteration
-        mppt_inccond(mppt_v, mppt_i);
+        mppt_po(mppt_v, mppt_i);
 
         mppt_period = MPPT_PERIOD;
       } 
@@ -193,12 +202,12 @@ void set_boost_duty(int duty)
 {
   if (duty > MAX_BOOST_DUTY)
   {
-    Serial.println("Attempted to set boost duty cycle too high!");
+//    Serial.println("Attempted to set boost duty cycle too high!");
     boost_duty = MAX_BOOST_DUTY;
   } 
   else if (duty < MIN_BOOST_DUTY)
   {
-    Serial.println("Attempted to set boost duty cycle too low!");
+//    Serial.println("Attempted to set boost duty cycle too low!");
     boost_duty = MIN_BOOST_DUTY;
   } 
   else
@@ -209,6 +218,40 @@ void set_boost_duty(int duty)
 }
 
 //MPPT CONTROL
+void mppt_po(float v, float i)
+{
+  static long prev_p = 0;
+  static int updown = 0;
+  
+  long mV = (long)(100*v);
+  long mA = (long)(10*i);
+  long power = mV * mA;
+  
+  Serial.println(power-prev_p);
+  
+  if (power < prev_p) {
+    updown ^= 1;
+  }
+  
+  if (!updown) {
+    mppt_target_v -= MPPT_VOLTAGE_STEP;
+    if (mppt_target_v < MPPT_MIN_V)
+    {
+      mppt_target_v = MPPT_MIN_V;
+    }
+  } else {
+    mppt_target_v += MPPT_VOLTAGE_STEP;
+    if (mppt_target_v > MPPT_MAX_V)
+    {
+      mppt_target_v = MPPT_MAX_V;
+    }
+  }
+  
+  Serial.println(mppt_target_v);
+  
+  prev_p = power;
+}
+
 void mppt_inccond(float v, float i)
 {
   static long prev_p = 0;
@@ -267,12 +310,12 @@ void set_mppt_duty(int duty)
 {
   if (duty > MAX_MPPT_DUTY)
   {
-    Serial.println("Attempted to set mppt duty cycle too high!");
+//    Serial.println("Attempted to set mppt duty cycle too high!");
     mppt_duty = MAX_MPPT_DUTY;
   } 
   else if (duty < MIN_MPPT_DUTY)
   {
-    Serial.println("Attempted to set mppt duty cycle too low!");
+//    Serial.println("Attempted to set mppt duty cycle too low!");
     mppt_duty = MIN_MPPT_DUTY;
   } 
   else
