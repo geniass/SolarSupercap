@@ -26,7 +26,8 @@
 #define MPPT_PWM_PIN 5
 #define MPPT_V_ADC 1
 #define MPPT_I_ADC 0
-#define MPPT_PERIOD 100  // number of main loops before MPPT runs
+#define MPPT_PERIOD 10  // number of main loops before MPPT runs
+#define MPPT_PID_PERIOD 100
 #define MPPT_VOLTAGE_STEP 0.2
 #define MPPT_DUTY_STEP 1
 #define MPPT_CURRENT_FACTOR 10
@@ -45,6 +46,7 @@ float mppt_i = 0.2;
 float mppt_target_v = 5;
 float mppt_target_i = 0.2;
 int mppt_period = MPPT_PERIOD;
+int mppt_pid_period = MPPT_PID_PERIOD;
 
 int ledPin = 11;      // select the pin for the LED
 
@@ -127,6 +129,7 @@ void loop() {
     mppt_v = get_mppt_voltage(temp, VCC);
     mppt_i = get_mppt_current(tempI, VCC);
     
+    if (mppt_pid_period == 0) {
     if (mppt_period == 0)
     {
       Serial.print("mppt_v: ");
@@ -142,6 +145,10 @@ void loop() {
     }
     
     mppt_pid(mppt_target_v, mppt_target_i, mppt_v, mppt_i);
+    mppt_pid_period = MPPT_PID_PERIOD;
+    } else {
+      mppt_pid_period--;
+    }
   }   
 }
 
